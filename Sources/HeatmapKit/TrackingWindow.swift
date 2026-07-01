@@ -40,24 +40,12 @@ public final class TrackingWindow: UIWindow {
                 toX: Double(end.x), toY: Double(end.y),
                 threshold: tapSlop
             ) else { return }   // 많이 움직임 → 스크롤/드래그, 무시
-            HeatmapCollector.shared.handleTap(at: start, in: self, hitView: touch.view)
+            HeatmapCollector.shared.handleTap(at: start, in: self)
         case .cancelled:
             beganLocations[key] = nil
         default:
             break
         }
-    }
-}
-
-extension UIResponder {
-    /// 책임 체인을 따라 이 responder를 소유한 `UIViewController`를 찾는다.
-    var owningViewController: UIViewController? {
-        var responder: UIResponder? = self
-        while let current = responder {
-            if let vc = current as? UIViewController { return vc }
-            responder = current.next
-        }
-        return nil
     }
 }
 

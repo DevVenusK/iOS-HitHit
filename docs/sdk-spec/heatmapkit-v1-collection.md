@@ -26,7 +26,7 @@
   "id": "9F2A…",            // 이벤트 UUID — 서버 측 멱등 dedup(ACK 유실 재시도 대비)
   "type": "tap",            // "tap" | "scroll"
   "screen": "loan_detail",  // 화면 이름(문자열). 매핑은 사용자가 나중에.
-  "x": 0.42,                // tap: 정규화 0~1 (VC 루트 뷰 bounds 기준). scroll: 생략/null
+  "x": 0.42,                // tap: 정규화 0~1 (window 화면 bounds 기준). scroll: 생략/null
   "y": 0.73,                // tap: 정규화 0~1. scroll: 생략/null
   "scrollDepth": null,      // scroll: 정규화 깊이 0~1. tap: 생략/null
   "scrollOffsetY": null,    // scroll: 원본 contentOffset.y(참고). tap: 생략/null
@@ -38,7 +38,7 @@
 }
 ```
 
-- **정규화 기준**: 탭은 hit된 VC 루트 뷰 bounds 기준 0~1. `screenW/H`는 그 bounds 크기.
+- **정규화 기준**: 탭은 **window(전체 화면) bounds** 기준 0~1(화면마다 안정적으로 동일). `screenW/H`는 그 화면 크기. child/컨테이너 VC에 따라 기준이 바뀌지 않도록 화면 단위로 고정.
 - **스크롤 깊이**: `scrollDepth = contentOffset.y / max(1, contentSize.height - bounds.height)`, 0~1 clamp.
 - **forward-compat**: 필드 *추가*는 옵셔널이면 non-breaking(schemaVersion 유지). 의미변경/삭제만 schemaVersion++.
 

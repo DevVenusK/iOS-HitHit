@@ -100,15 +100,15 @@ public final class HeatmapCollector {
     // MARK: - Tap intake (TrackingWindow → here)
 
     /// `TrackingWindow.sendEvent`에서 호출. 메인 스레드에서 좌표 정규화 + enqueue만 수행.
-    /// `hitView`는 UIKit이 이미 히트테스트한 `touch.view`를 그대로 받아 재히트테스트를 피한다.
-    func handleTap(at point: CGPoint, in window: UIWindow, hitView: UIView?) {
+    ///
+    /// 정규화 기준은 **항상 window(전체 화면) bounds**로 고정한다. 탭된 뷰가 속한
+    /// child/컨테이너 VC에 따라 기준이 달라지면 같은 화면의 좌표가 서로 비교 불가능해지고
+    /// orientation도 오판되므로, 화면 단위의 안정적인 기준을 쓴다. `point`는 이미 window 좌표계다.
+    func handleTap(at point: CGPoint, in window: UIWindow) {
         guard let pipeline = currentPipeline() else { return }
-        let target = hitView ?? window.hitTest(point, with: nil)
-        let rootView = target?.owningViewController?.view ?? window
-        let local = rootView.convert(point, from: window)
-        let bounds = rootView.bounds
+        let bounds = window.bounds
         guard let n = Normalization.normalize(
-            px: Double(local.x), py: Double(local.y),
+            px: Double(point.x), py: Double(point.y),
             width: Double(bounds.width), height: Double(bounds.height)
         ) else { return }
         let orientation = DeviceInfo.orientation(
