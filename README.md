@@ -155,9 +155,13 @@ HeatmapCollector.shared.setConsent(true)
 화면마다:
 ```swift
 HeatmapCollector.shared.setScreen("loan_detail")   // 현재 화면 이름
-HeatmapCollector.shared.track(scrollView: tableView)
+// 스크롤은 기본 자동 추적 → 보통 아무것도 안 해도 됨.
+// (autoTrackScrollViews=false로 끄면 원하는 것만 track(scrollView:)로 등록)
 HeatmapCollector.shared.flush()                    // 백그라운드 진입 시
 ```
+
+> **스크롤은 기본 자동**입니다. 터치가 스크롤뷰 안에서 시작되면 그 스크롤뷰가 자동 등록됩니다(스위즐 아님).
+> 탭처럼 별도 설정 없이 잡힙니다. 세밀 제어가 필요하면 `config.autoTrackScrollViews = false` 후 `track(scrollView:)`로 명시 등록.
 
 ---
 
@@ -170,6 +174,7 @@ HeatmapCollector.shared.flush()                    // 백그라운드 진입 시
 | `excludedScreens` | `[]` | 수집 제외 화면(민감화면) |
 | `samplingRate` | `1.0` | 0~1 확률 샘플링 |
 | `scrollSampleHz` | `10` | 스크롤 샘플링 주파수 |
+| `autoTrackScrollViews` | `true` | 터치된 스크롤뷰 자동 추적. false면 `track(scrollView:)` 수동 등록만 |
 | `uploadStrategy` | `.immediate` | 전송 전략 (아래 참고) |
 | `storageDirectory` | caches | **실패/오프라인 대비 임시 버퍼** 위치 |
 | `uploader` | nil | 커스텀 전송기(주입 시 내장 대체) |

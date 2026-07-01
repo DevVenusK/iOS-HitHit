@@ -14,6 +14,9 @@ public struct HeatmapConfig {
     public var samplingRate: Double
     /// 스크롤 샘플링 주파수(Hz). 기본 10.
     public var scrollSampleHz: Int
+    /// true면 터치가 시작된 스크롤뷰를 자동 등록해 추적한다(기본 true, 스위즐 아님).
+    /// false면 `track(scrollView:)`로 명시 등록한 것만 추적.
+    public var autoTrackScrollViews: Bool
     /// 서버 전송 전략. 기본 `.immediate`(발생 즉시 전송, 로컬은 실패 대비 임시 버퍼).
     public var uploadStrategy: HeatmapUploadStrategy
     /// 실패/오프라인 대비 임시 버퍼 위치. nil이면 앱 caches.
@@ -27,6 +30,7 @@ public struct HeatmapConfig {
         self.excludedScreens = []
         self.samplingRate = 1.0
         self.scrollSampleHz = 10
+        self.autoTrackScrollViews = true
         self.uploadStrategy = .immediate
         self.storageDirectory = nil
         self.uploader = nil

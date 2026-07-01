@@ -24,6 +24,7 @@ public final class HeatmapCollector {
     private var scrollTracker: ScrollTracker?
     private var flushTimer: DispatchSourceTimer?
     private var _isRunning = false
+    private var autoTrackScrollViews = true
 
     public var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return _isRunning }
 
@@ -46,6 +47,7 @@ public final class HeatmapCollector {
 
         self.pipeline = pipeline
         self.scrollTracker = ScrollTracker(pipeline: pipeline, hz: config.scrollSampleHz)
+        self.autoTrackScrollViews = config.autoTrackScrollViews
         // `.immediate`는 실패/오프라인분 재시도 스윕용, `.batched`는 주기 전송용 타이머.
         self.flushTimer = Self.makeFlushTimer(interval: config.uploadStrategy.timerInterval) { [weak self] in
             self?.flush(completion: nil)
@@ -116,6 +118,19 @@ public final class HeatmapCollector {
             screenW: Double(bounds.width), screenH: Double(bounds.height),
             device: DeviceInfo.modelIdentifier, orientation: orientation
         )
+    }
+
+    // MARK: - Auto scroll tracking (TrackingWindow → here)
+
+    /// 터치가 시작된 뷰가 스크롤뷰 안에 있으면 그 스크롤뷰를 자동 등록한다.
+    /// `TrackingWindow`가 `.began`에서 호출. `autoTrackScrollViews`가 true일 때만 동작.
+    func noteTouch(on view: UIView?) {
+        lock.lock()
+        let enabled = autoTrackScrollViews
+        let tracker = scrollTracker
+        lock.unlock()
+        guard enabled, let scrollView = view?.enclosingScrollView() else { return }
+        tracker?.track(scrollView)
     }
 
     // MARK: - Locked accessors

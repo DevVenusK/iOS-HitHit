@@ -29,6 +29,8 @@ public final class TrackingWindow: UIWindow {
         switch touch.phase {
         case .began:
             beganLocations[key] = touch.location(in: self)
+            // 스크롤뷰 안에서 시작된 터치면 그 스크롤뷰를 자동 등록(스위즐 아님).
+            HeatmapCollector.shared.noteTouch(on: touch.view)
         case .ended:
             defer { beganLocations[key] = nil }
             guard let start = beganLocations[key] else { return }
@@ -54,6 +56,18 @@ extension UIResponder {
         while let current = responder {
             if let vc = current as? UIViewController { return vc }
             responder = current.next
+        }
+        return nil
+    }
+}
+
+extension UIView {
+    /// superview 체인을 올라가며 가장 가까운 `UIScrollView`를 찾는다.
+    func enclosingScrollView() -> UIScrollView? {
+        var view: UIView? = self
+        while let current = view {
+            if let scrollView = current as? UIScrollView { return scrollView }
+            view = current.superview
         }
         return nil
     }
