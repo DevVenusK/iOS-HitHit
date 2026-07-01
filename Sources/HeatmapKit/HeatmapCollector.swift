@@ -42,7 +42,8 @@ public final class HeatmapCollector {
 
             self.pipeline = pipeline
             self.scrollTracker = ScrollTracker(pipeline: pipeline, hz: config.scrollSampleHz)
-            self.scheduleFlushTimer(interval: config.flushInterval)
+            // `.immediate`는 실패/오프라인분 재시도 스윕용, `.batched`는 주기 전송용 타이머.
+            self.scheduleFlushTimer(interval: config.uploadStrategy.timerInterval)
             self.isRunning = true
         }
     }

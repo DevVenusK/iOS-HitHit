@@ -27,8 +27,10 @@ final class PerformanceTests: XCTestCase {
     /// enqueue 후 실제 저장/인코딩은 백그라운드라 여기 포함되지 않아야 정상.
     func test_recordTap_mainThreadEnqueue_underBudget() {
         let store = EventStore(fileURL: TestFiles.tempEventFile())
+        var config = HeatmapConfig(endpoint: URL(string: "https://example.com")!)
+        config.uploadStrategy = .batched(maxSize: 1_000_000, interval: 3600) // 전송 부하 배제
         let pipeline = EventPipeline(
-            config: HeatmapConfig(endpoint: URL(string: "https://example.com")!),
+            config: config,
             store: store, uploader: FakeUploader(), sampler: { 0.0 }, now: { 42 })
         pipeline.start(); pipeline.setConsent(true); pipeline.setScreen("home")
 

@@ -1,52 +1,109 @@
 # HeatmapKit
 
-호스트 iOS 앱의 **탭·스크롤 이벤트를 정규화 좌표로 수집해 서버로 직접 전송**하는 1st-party 분석 SDK.
-히트맵 렌더링은 하지 않는다 — 수집된 데이터로 **당신이 나중에 직접** 히트맵을 만든다.
+[![CI](https://github.com/DevVenusK/iOS-Hitmap/actions/workflows/ci.yml/badge.svg)](https://github.com/DevVenusK/iOS-Hitmap/actions/workflows/ci.yml)
+![iOS](https://img.shields.io/badge/iOS-14%2B-blue)
+![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)
+![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 
-- 서드파티 의존성 **0** (Foundation/UIKit만)
-- iOS 14+ · Swift 5.9+ · SwiftPM
-- 좌표·화면이름·시간만 수집 (텍스트/입력값/요소식별자 **미수집**)
-- 동의 기본 **OFF** (fail-safe) · 민감화면 제외 · 성능 예산(터치당 <0.5ms)
+호스트 iOS 앱의 **탭·스크롤 이벤트를 디바이스 무관한 정규화 좌표로 수집해 서버로 직접 전송**하는
+1st-party UX 분석 SDK. **히트맵 렌더링은 하지 않는다** — 수집된 데이터로 **당신이 나중에 직접** 히트맵을 만든다.
 
-## 설치 (SwiftPM)
+---
 
-```swift
-// Package.swift
-dependencies: [
-    .package(url: "https://github.com/<org>/HeatmapKit.git", from: "1.0.0")
-]
+## 🎯 목적 (왜 만들었나)
+
+> "유저가 화면의 어디를 많이 누르는가 / 얼마나 깊이 스크롤하는가"를 알고 싶다.
+
+상용 분석 SDK(UXCam, Smartlook 등)는 편하지만 금융 앱에는 두 가지 문제가 있다:
+1. **데이터 주권** — 사용자 상호작용 원본이 외부 벤더로 나간다.
+2. **프라이버시 통제** — 무엇을 수집하는지 세밀하게 막기 어렵다.
+
+HeatmapKit은 **수집 레이어만** 직접 소유한다. 좌표·화면이름·시간이라는 최소 데이터만 모아
+**당신의 서버**로 보내고, 히트맵 시각화는 그 데이터로 원하는 도구에서 자유롭게 만든다.
+
+**설계 원칙**
+- **수집만 한다** — 렌더링/뷰어는 범위 밖 (Non-Goal)
+- **좌표만** — 텍스트/입력값/요소식별자(elementID) 절대 미수집 → PII 경로 원천 차단
+- **동의 기본 OFF** — 명시적 동의 전에는 단 한 건도 수집 안 함 (fail-safe, 회귀테스트로 강제)
+- **서드파티 0 의존성** — 호스트 앱과 버전 충돌 없음
+- **성능 예산** — 터치당 메인스레드 < 0.5ms (측정치 per-op ~0.15µs)
+- **디바이스 무관** — SE와 Pro Max 데이터를 섞어도 의미가 유지되도록 0~1 정규화 + 화면크기 동봉
+
+---
+
+## 🧩 구성도
+
+### 데이터 흐름
+
+```mermaid
+flowchart LR
+  U["👆 사용자<br/>탭 / 스크롤"] --> TW["TrackingWindow<br/>ScrollTracker"]
+  TW -->|"정규화 좌표 계산<br/>(메인스레드 &lt;0.5ms)"| C["HeatmapCollector<br/>(공개 API)"]
+  C --> P["EventPipeline<br/>게이팅: 실행·동의·제외화면·샘플링"]
+  P -->|"백그라운드 큐"| S[("EventStore<br/>임시 버퍼(실패 대비)")]
+  S --> UP["DefaultHTTPUploader<br/>POST + 지수백오프 재시도"]
+  UP -->|"성공→로컬삭제<br/>실패→로컬보존(재시도)"| SRV[("🗄️ 당신의 서버<br/>(데이터 원본)")]
+  SRV -.->|"나중에 직접"| HM["📊 히트맵 생성"]
 ```
 
-## Quick Start (5줄)
+### 모듈 의존성
 
-```swift
-// 1) SceneDelegate — window를 TrackingWindow로 교체
-window = TrackingWindow(windowScene: windowScene)
-
-// 2) 앱 시작 시
-let config = HeatmapConfig(endpoint: URL(string: "https://your.server/heatmap")!)
-try? HeatmapCollector.shared.start(config: config)
-
-// 3) 개인정보 동의를 받은 뒤 (기본 OFF)
-HeatmapCollector.shared.setConsent(true)
+```mermaid
+flowchart TD
+  subgraph Kit["HeatmapKit (수집 + 전송, UIKit)"]
+    TW["TrackingWindow"] --> Col["HeatmapCollector"]
+    ST["ScrollTracker"] --> Pipe["EventPipeline"]
+    Col --> Pipe
+    Pipe --> Store["EventStore (JSONL)"]
+    Pipe --> Up["DefaultHTTPUploader"]
+    Dev["DeviceInfo"]
+    Cfg["HeatmapConfig"]
+  end
+  subgraph Core["HeatmapCore (스키마, 순수 Foundation)"]
+    Ev["HeatmapEvent"]
+    Er["HeatmapError"]
+    No["Normalization"]
+  end
+  Kit --> Core
 ```
 
-화면마다:
+- **HeatmapCore** — UIKit 무의존 순수 로직(스키마·에러·좌표 정규화). 어디서든 단위테스트 가능.
+- **HeatmapKit** — UIKit 글루 + 수집/저장/전송. 공개 API는 `HeatmapCollector` 하나로 좁힘.
+- 테스트 가능성을 위해 게이팅/저장/전송 로직을 `EventPipeline`(생성자 주입)으로 분리, 싱글톤은 얇은 파사드.
 
-```swift
-// 각 ViewController의 viewWillAppear 등에서
-HeatmapCollector.shared.setScreen("loan_detail")
+---
 
-// 스크롤 깊이를 추적할 스크롤뷰 등록 (스위즐 없음)
-HeatmapCollector.shared.track(scrollView: tableView)
+## 📁 디렉토리 구조
 
-// 앱이 백그라운드로 갈 때 남은 배치 전송
-HeatmapCollector.shared.flush()
+```
+Hitmap_Project/
+├── Package.swift                 # SwiftPM: HeatmapCore + HeatmapKit 2 타겟
+├── Sources/
+│   ├── HeatmapCore/              # 스키마 · 에러 · 정규화(순수)
+│   │   ├── HeatmapEvent.swift
+│   │   ├── HeatmapError.swift    #   struct + code (확장에 안전)
+│   │   └── Normalization.swift   #   좌표/스크롤깊이 순수 함수
+│   └── HeatmapKit/               # 수집 + 전송(UIKit)
+│       ├── HeatmapCollector.swift #  공개 진입점
+│       ├── HeatmapConfig.swift
+│       ├── HeatmapUploader.swift  #  프로토콜 + 내장 HTTP 전송기
+│       ├── EventPipeline.swift    #  게이팅/저장/전송 코어(테스트 가능)
+│       ├── EventStore.swift       #  JSONL 배치 저장
+│       ├── TrackingWindow.swift   #  전역 탭 인터셉트
+│       ├── ScrollTracker.swift    #  스크롤 깊이 샘플링(비스위즐)
+│       └── DeviceInfo.swift
+├── Tests/                        # 30 tests (XCTest)
+├── docs/
+│   ├── sdk-spec/                 # 기술 스펙 (v1 수집 스펙이 권위)
+│   └── po/                       # PO 백로그(RICE) + 팀 의뢰 회신
+└── .github/workflows/ci.yml      # SwiftPM test + iOS 시뮬 빌드
 ```
 
-## 수집되는 데이터 (서버로 전송되는 이벤트)
+---
 
-탭·스크롤을 하나의 flat 스키마로 통일. `screenW/H`+`device`+`orientation`을 함께 보내
+## 📦 수집되는 데이터 (서버로 가는 이벤트)
+
+탭·스크롤을 하나의 flat 스키마로 통일. `screenW/H`+`device`+`orientation`을 함께 실어
 어떤 기기든 합쳐 히트맵을 그릴 수 있다.
 
 ```json
@@ -62,61 +119,135 @@ HeatmapCollector.shared.flush()
   "device": "iPhone15,3", "orientation": "portrait", "ts": 1719800000000 }
 ```
 
-배치는 JSON 배열로 `endpoint`에 `POST`된다(내장 전송기, 지수 백오프 재시도, 실패 시 로컬 보존).
+| 필드 | 의미 |
+|---|---|
+| `type` | `tap` \| `scroll` |
+| `screen` | 화면 이름(문자열). 매핑은 수집 측이 나중에. **PII 금지** |
+| `x`,`y` | 탭 정규화 좌표 0~1 (뷰 bounds 기준) |
+| `scrollDepth` | 스크롤 정규화 깊이 0~1 |
+| `screenW`,`screenH`,`device`,`orientation` | 정규화 기준 + 기기 컨텍스트 |
+| `ts` | epoch milliseconds |
 
-## 설정 (HeatmapConfig)
+---
+
+## 🚀 Quick Start
+
+```swift
+// Package.swift
+dependencies: [
+    .package(url: "https://github.com/DevVenusK/iOS-Hitmap.git", from: "0.0.1")
+]
+```
+
+```swift
+// 1) SceneDelegate — window를 TrackingWindow로 교체
+window = TrackingWindow(windowScene: windowScene)
+
+// 2) 앱 시작
+let config = HeatmapConfig(endpoint: URL(string: "https://your.server/heatmap")!)
+try? HeatmapCollector.shared.start(config: config)
+
+// 3) 동의 후 (기본 OFF)
+HeatmapCollector.shared.setConsent(true)
+```
+
+화면마다:
+```swift
+HeatmapCollector.shared.setScreen("loan_detail")   // 현재 화면 이름
+HeatmapCollector.shared.track(scrollView: tableView)
+HeatmapCollector.shared.flush()                    // 백그라운드 진입 시
+```
+
+---
+
+## ⚙️ 설정 (HeatmapConfig)
 
 | 필드 | 기본값 | 설명 |
 |---|---|---|
-| `endpoint` | (필수) | 배치 전송 대상 URL |
+| `endpoint` | (필수) | **서버 URL — 수집 데이터 전송 대상.** 데이터의 원본은 이 서버 |
 | `headers` | `[:]` | 인증 등 요청 헤더 |
-| `excludedScreens` | `[]` | 수집 제외 화면(민감화면). 탭·스크롤 모두 차단 |
-| `samplingRate` | `1.0` | 0~1, 확률적 샘플링 |
+| `excludedScreens` | `[]` | 수집 제외 화면(민감화면) |
+| `samplingRate` | `1.0` | 0~1 확률 샘플링 |
 | `scrollSampleHz` | `10` | 스크롤 샘플링 주파수 |
-| `maxBatchSize` | `500` | 한 배치 최대 이벤트 수 |
-| `flushInterval` | `30` | 자동 flush 주기(초) |
-| `storageDirectory` | caches | 로컬 저장 위치 |
-| `uploader` | nil | 커스텀 전송기(주입 시 내장 전송기 대체) |
+| `uploadStrategy` | `.immediate` | 전송 전략 (아래 참고) |
+| `storageDirectory` | caches | **실패/오프라인 대비 임시 버퍼** 위치 |
+| `uploader` | nil | 커스텀 전송기(주입 시 내장 대체) |
 
-### 커스텀 전송기
+### 전송 전략 (uploadStrategy)
 
-인증/포맷/재시도를 완전히 통제하려면 `HeatmapUploader`를 구현해 주입한다.
+데이터는 **서버가 원본**이다. 로컬 JSONL은 영구 저장소가 아니라 **전송 실패/오프라인 대비 임시 버퍼**이며,
+업로드 성공 즉시 비워진다.
+
+| 전략 | 동작 |
+|---|---|
+| **`.immediate`** (기본) | 이벤트 발생 **즉시 서버로 전송**. 전송 중 들어온 이벤트는 코얼레싱되어 다음 드레인에 함께 전송(탭 1번=요청 1개 아님). 로컬엔 미전송분만 잠깐 남음 |
+| `.batched(maxSize:interval:)` | `maxSize` 도달 또는 `interval` 경과 시 전송. 네트워크/배터리 절약, 대신 전송 전까지 로컬에 더 오래 쌓임 |
 
 ```swift
+var config = HeatmapConfig(endpoint: serverURL)
+config.uploadStrategy = .immediate                        // 기본: 즉시
+// config.uploadStrategy = .batched(maxSize: 500, interval: 30)  // 절약 모드
+```
+
+> 전송 실패/오프라인이면 이벤트는 로컬 버퍼에 보존되고, 60초 재시도 스윕 또는 다음 이벤트/`flush()` 시 재전송된다.
+
+커스텀 전송기:
+```swift
 final class MyUploader: HeatmapUploader {
-    func upload(batch: Data, completion: @escaping (Result<Void, Error>) -> Void) {
-        // 직접 전송...
-    }
+    func upload(batch: Data, completion: @escaping (Result<Void, Error>) -> Void) { /* ... */ }
 }
-var config = HeatmapConfig(endpoint: url)
 config.uploader = MyUploader()
 ```
 
-## 프라이버시
+---
 
-- **동의 기본 OFF.** `setConsent(true)` 전에는 단 한 건도 수집·저장되지 않는다(회귀테스트로 강제).
-- **좌표만 수집.** 화면 콘텐츠/입력값/요소 식별자는 절대 담기지 않는다.
-- **민감화면 제외.** 로그인·계좌·금액 화면 등은 `excludedScreens`에 등록.
-- **`screen` 이름에 PII를 넣지 말 것** (서버로 전송됨). 고정 심볼릭 이름을 쓴다.
-- ATT/IDFA 추적이 **아니다**(1st-party 분석). 자세한 신고 의무는 [docs/sdk-spec/heatmapkit-v1-collection.md](docs/sdk-spec/heatmapkit-v1-collection.md) §6 참고.
+## 🔒 프라이버시
 
-## 아키텍처
+- **동의 기본 OFF** — `setConsent(true)` 전엔 수집·저장 0건 (회귀테스트로 강제)
+- **좌표만 수집** — 콘텐츠/입력값/요소식별자 절대 미수집
+- **민감화면 제외** — 로그인·계좌·금액 화면은 `excludedScreens`에 등록
+- **`screen` 이름에 PII 금지** — 서버로 전송되므로 고정 심볼릭 이름 사용
+- **ATT/IDFA 추적 아님** (1st-party 분석). PrivacyManifest는 현재 required-reason API 미사용으로
+  필수는 아니나, 데이터수집 신고는 호스트 앱 App Privacy 라벨로 처리 → [상세](docs/sdk-spec/heatmapkit-v1-collection.md) §6
 
-```
-HeatmapCore   이벤트 스키마 · 에러 · 좌표 정규화(순수 함수)
-HeatmapKit    HeatmapCollector(공개 API) · TrackingWindow · ScrollTracker
-              EventPipeline(게이팅/저장/전송) · EventStore(JSONL) · DefaultHTTPUploader
-```
+---
 
-- 메인 스레드는 **좌표 정규화 + enqueue만** 수행(성능 예산 <0.5ms). 인코딩/IO/네트워크는 100% 백그라운드.
-- `HeatmapUploader` weak 보관, 추적 `UIScrollView` weak — retain cycle 없음.
-
-## 개발 / 테스트
+## 🧪 개발 / 테스트
 
 ```bash
 swift build
-swift test        # 27 tests (동의OFF=0건 게이트, 전송 재시도, 정규화, 저장 등)
+swift test        # 30 tests: 동의OFF=0건 게이트 · 전송 재시도 · 정규화 · 저장 · 성능예산
 ```
+
+- 성능 가드: 메인스레드 인입 경로 per-op < 0.5ms 하드 어서션 포함
+- CI: macOS 러너에서 `swift test` + iOS 시뮬레이터 빌드(UIKit 글루 검증)
+
+---
+
+## 🗺️ 상태 / 로드맵
+
+| 단계 | 항목 | 상태 |
+|---|---|---|
+| **NOW (0.x)** | 수집 코어 · 동의 게이트 · 직접 전송 · 성능예산 · CI · README | ✅ 완료 |
+| NOW-EXIT | wire schema v1 동결(분석가 필드 점검 1회) | ⏳ 워크숍 대기 |
+| NEXT | reference uploader 샘플 · (필요시) sessionID 옵셔널 필드 | 예정 |
+| LATER | CocoaPods podspec · SQLite 저장 옵션 | 조건부 |
+
+> **버저닝**: pre-1.0(0.x) 동안 wire schema 변경 가능. schema 동결 후 `v1.0.0` 승격.
+> 자세한 우선순위 근거는 [docs/po/heatmapkit-backlog.md](docs/po/heatmapkit-backlog.md)(RICE).
+
+---
+
+## 📚 문서
+
+| 문서 | 내용 |
+|---|---|
+| [docs/sdk-spec/heatmapkit-v1-collection.md](docs/sdk-spec/heatmapkit-v1-collection.md) | **v1 수집 스펙 (권위)** — API·스키마·전송·프라이버시 |
+| [docs/sdk-spec/heatmapkit.md](docs/sdk-spec/heatmapkit.md) | 초기 풀스코프 스펙(렌더러 포함, v1이 대체) |
+| [docs/po/heatmapkit-backlog.md](docs/po/heatmapkit-backlog.md) | PO 백로그 + RICE 우선순위 + 로드맵 |
+| [docs/po/consults/](docs/po/consults/) | ios/designer/security 팀 의뢰 회신 |
+
+---
 
 ## 라이선스
 
