@@ -45,7 +45,7 @@ final class StubURLProtocol: URLProtocol {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
         return DefaultHTTPUploader(
-            endpoint: URL(string: "https://example.com/heatmap")!,
+            endpoint: URL(string: "https://example.com/hitmap")!,
             headers: ["X-Api-Key": "test"],
             session: URLSession(configuration: config),
             maxRetries: maxRetries,

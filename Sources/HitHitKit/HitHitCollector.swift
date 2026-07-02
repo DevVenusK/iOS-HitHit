@@ -6,7 +6,7 @@ import HitHitCore
 ///
 /// 연결 예시(SceneDelegate):
 /// ```swift
-/// let cfg = HitHitConfig(endpoint: URL(string: "https://api.example.com/heatmap")!)
+/// let cfg = HitHitConfig(endpoint: URL(string: "https://api.example.com/hitmap")!)
 /// try? HitHitCollector.shared.start(config: cfg)
 /// HitHitCollector.shared.setConsent(true)   // 동의 획득 후
 /// ```

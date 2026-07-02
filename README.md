@@ -145,7 +145,7 @@ dependencies: [
 window = TrackingWindow(windowScene: windowScene)
 
 // 2) 앱 시작
-let config = HitHitConfig(endpoint: URL(string: "https://your.server/heatmap")!)
+let config = HitHitConfig(endpoint: URL(string: "https://your.server/hitmap")!)
 try? HitHitCollector.shared.start(config: config)
 
 // 3) 동의 후 (기본 OFF)

@@ -45,7 +45,7 @@ enum TestFiles {
     /// 매 테스트마다 고유한 임시 JSONL 경로.
     static func tempEventFile(_ name: String = "events") -> URL {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("heatmap-tests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("hitmap-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("\(name).jsonl")
     }
