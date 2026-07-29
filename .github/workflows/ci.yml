@@ -9,18 +9,30 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 러너 이미지를 명시 고정한다(재현성). macos-26 = Xcode 26.5 / Swift 6.3 기준.
+#
+# 배경: Swift Testing(`import Testing`)은 **Swift 6.0+ 툴체인**이 필요하다.
+# 예전 설정(macos-14 + Xcode 15.4 = Swift 5.10)에서는 "no such module 'Testing'"으로
+# CI가 5개 커밋 내내 깨져 있었다. 아래 Toolchain 스텝이 이 조건을 하드 가드한다.
+# 이미지가 은퇴(deprecate)해 올릴 때는 Swift 6+만 유지하면 된다.
+
 jobs:
   spm-test:
     name: SwiftPM build & test (macOS host)
-    # Swift Testing(`import Testing`)은 Swift 6.0+ 툴체인이 필요하다.
-    # macos-14의 기본 Xcode 15.4(Swift 5.10)에서는 "no such module 'Testing'"으로 깨진다.
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
-      - name: Toolchain
+      - uses: actions/checkout@v7
+      - name: Toolchain (Swift 6+ 필수)
         run: |
+          set -euo pipefail
           swift --version
           xcodebuild -version
+          line=$(swift --version 2>&1 | grep -m1 "Apple Swift version" || true)
+          major=$(printf '%s' "$line" | sed -n 's/.*Apple Swift version \([0-9]*\).*/\1/p')
+          if [ "${major:-0}" -lt 6 ]; then
+            echo "::error::Swift Testing은 Swift 6.0+ 툴체인이 필요합니다. 현재: ${line:-알 수 없음}"
+            exit 1
+          fi
       - name: Build
         run: swift build
       # 주의: macOS 호스트에서는 canImport(UIKit)이 false이므로 UIKit 글루
@@ -31,13 +43,20 @@ jobs:
 
   ios-test:
     name: iOS simulator test (UIKit glue)
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
-      - name: Toolchain
+      - uses: actions/checkout@v7
+      - name: Toolchain (Swift 6+ 필수)
         run: |
+          set -euo pipefail
           swift --version
           xcodebuild -version
+          line=$(swift --version 2>&1 | grep -m1 "Apple Swift version" || true)
+          major=$(printf '%s' "$line" | sed -n 's/.*Apple Swift version \([0-9]*\).*/\1/p')
+          if [ "${major:-0}" -lt 6 ]; then
+            echo "::error::Swift Testing은 Swift 6.0+ 툴체인이 필요합니다. 현재: ${line:-알 수 없음}"
+            exit 1
+          fi
       # HitHitKit 스킴은 test 액션을 지원하지 않는다(라이브러리 product 전용).
       # 테스트 타겟이 포함된 스킴은 SwiftPM이 생성하는 HitHitKit-Package다.
       - name: Test on iOS Simulator (UIKit 글루 포함 전체)
