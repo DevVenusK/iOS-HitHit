@@ -21,6 +21,10 @@ public struct HitHitConfig {
     public var uploadStrategy: HitHitUploadStrategy
     /// 실패/오프라인 대비 임시 버퍼 위치. nil이면 앱 caches.
     public var storageDirectory: URL?
+    /// 임시 버퍼에 보관할 최대 이벤트 수. 초과하면 **오래된 것부터** 버린다.
+    /// 오프라인이 길어져도 로컬 파일이 무한히 커지지 않게 하는 안전장치.
+    /// **0 이하는 무제한**(권장하지 않음). 기본 20,000건(이벤트 1건 ≈ 200B → 약 4MB).
+    public var maxBufferedEvents: Int
     /// 커스텀 전송기. nil이면 내장 HTTP 전송기 사용.
     public var uploader: HitHitUploader?
 
@@ -33,6 +37,7 @@ public struct HitHitConfig {
         self.autoTrackScrollViews = true
         self.uploadStrategy = .immediate
         self.storageDirectory = nil
+        self.maxBufferedEvents = 20_000
         self.uploader = nil
     }
 }

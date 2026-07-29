@@ -159,4 +159,86 @@ import Foundation
         pipeline._syncForTesting()
         #expect(buffer.count() == 0)
     }
+
+    // MARK: - 버퍼 상한 (오프라인 장기화 시 무한 증가 방지)
+
+    /// offsetY를 0,1,2… 로 증가시켜 **어떤 이벤트가 살아남았는지** 식별 가능하게 한다.
+    private func recordScrolls(_ pipeline: EventPipeline, count: Int) {
+        for i in 0..<count {
+            pipeline.recordScroll(depth: 0.5, offsetY: Double(i), screenW: 390, screenH: 844,
+                                  device: "d", orientation: .portrait)
+        }
+    }
+
+    @Test func bufferStopsGrowingAtCapWhenNothingIsUploaded() {
+        let (pipeline, buffer) = makePipeline { $0.maxBufferedEvents = 10 }
+        pipeline.start(); pipeline.setConsent(true); pipeline.setScreen("home")
+
+        recordScrolls(pipeline, count: 100)
+        pipeline._syncForTesting()
+
+        #expect(buffer.count() <= 10)
+    }
+
+    /// 오래된 것부터 버려야 한다 — 최신 데이터가 분석 가치가 높고, 전송 순서도 FIFO다.
+    @Test func oldestEventsAreDroppedNotNewest() {
+        let (pipeline, buffer) = makePipeline { $0.maxBufferedEvents = 10 }
+        pipeline.start(); pipeline.setConsent(true); pipeline.setScreen("home")
+
+        recordScrolls(pipeline, count: 20)
+        pipeline._syncForTesting()
+
+        let survivors = buffer.loadSpan(max: 100).events.compactMap(\.scrollOffsetY)
+        #expect(survivors.contains(19))     // 최신은 남고
+        #expect(!survivors.contains(0))     // 가장 오래된 건 버려짐
+    }
+
+    @Test func zeroCapKeepsEverything() {
+        let (pipeline, buffer) = makePipeline { $0.maxBufferedEvents = 0 }
+        pipeline.start(); pipeline.setConsent(true); pipeline.setScreen("home")
+
+        recordScrolls(pipeline, count: 50)
+        pipeline._syncForTesting()
+
+        #expect(buffer.count() == 50)
+    }
+
+    /// 전송이 비행 중이면 앞에서 지우면 안 된다 — `startUpload`가 잡아둔 라인 수와
+    /// 어긋나 **아직 안 보낸 이벤트가 전송된 것으로 오인되어 삭제**될 수 있다.
+    private func makeInFlightPipeline() -> (EventPipeline, FakeBuffer, ManualUploader) {
+        let uploader = ManualUploader()
+        let (pipeline, buffer) = makePipeline(
+            configure: {
+                $0.maxBufferedEvents = 10
+                $0.uploadStrategy = .batched(maxSize: 5, interval: 3600)
+            },
+            uploader: uploader)
+        pipeline.start(); pipeline.setConsent(true); pipeline.setScreen("home")
+        recordScrolls(pipeline, count: 5)          // 5건 → 전송 시작, completion 붙잡힘
+        pipeline._syncForTesting()
+        return (pipeline, buffer, uploader)
+    }
+
+    @Test func capIsNotEnforcedWhileUploadIsInFlight() {
+        let (pipeline, buffer, uploader) = makeInFlightPipeline()
+        #expect(uploader.isInFlight)
+
+        recordScrolls(pipeline, count: 50)
+        pipeline._syncForTesting()
+
+        #expect(buffer.count() == 55)   // 상한(10)을 넘겨도 앞을 건드리지 않는다
+    }
+
+    @Test func capIsEnforcedOnceUploadSettles() {
+        let (pipeline, buffer, uploader) = makeInFlightPipeline()
+        recordScrolls(pipeline, count: 50)
+        pipeline._syncForTesting()
+
+        uploader.complete(.failure(HitHitError.uploadFailed(nil)))   // 실패 → 로컬 보존, 비행 종료
+        pipeline._syncForTesting()
+        recordScrolls(pipeline, count: 1)                            // 다음 인입에서 상한 적용
+        pipeline._syncForTesting()
+
+        #expect(buffer.count() == 9)    // max 10 → target 9
+    }
 }

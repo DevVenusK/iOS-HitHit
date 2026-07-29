@@ -40,13 +40,6 @@ final class EventStore: EventBuffering {
         queue.sync { cachedCount }
     }
 
-    /// 앞에서부터 최대 `max`건 디코딩해 반환.
-    func loadBatch(max: Int) -> [HitHitEvent] {
-        queue.sync {
-            lines().prefix(max).compactMap { try? decoder.decode(HitHitEvent.self, from: $0) }
-        }
-    }
-
     /// 앞에서부터 최대 `max` **라인**을 스캔해 (디코딩된 이벤트, 스캔한 raw 라인 수)를 반환.
     ///
     /// 디코딩 실패(잘림/손상) 라인은 events에서 빠지지만 `lineCount`에는 포함된다 →

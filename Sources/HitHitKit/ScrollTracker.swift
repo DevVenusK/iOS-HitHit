@@ -21,6 +21,9 @@ final class ScrollTracker {
     private var displayLink: CADisplayLink?
     private var tracked: [Tracked] = []
 
+    /// 현재 추적 중인(아직 해제되지 않은) 스크롤뷰 수. 메인 스레드에서 읽어야 한다.
+    var trackedCount: Int { tracked.count }
+
     init(pipeline: EventPipeline, hz: Int) {
         self.pipeline = pipeline
         self.hz = max(1, hz)
@@ -83,7 +86,9 @@ final class ScrollTracker {
         }
     }
 
-    @objc private func tick() {
+    /// 한 번의 샘플링 스텝. 평소엔 `CADisplayLink`가 부르고, 테스트는 직접 불러
+    /// 디스플레이 링크 타이밍에 의존하지 않고 결정적으로 검증한다(internal).
+    @objc func tick() {
         var stillAlive: [Tracked] = []
         for var item in tracked {
             guard let view = item.view else { continue } // dealloc된 것 제거

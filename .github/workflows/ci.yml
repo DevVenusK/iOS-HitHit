@@ -12,26 +12,46 @@ concurrency:
 jobs:
   spm-test:
     name: SwiftPM build & test (macOS host)
-    runs-on: macos-14
+    # Swift Testing(`import Testing`)은 Swift 6.0+ 툴체인이 필요하다.
+    # macos-14의 기본 Xcode 15.4(Swift 5.10)에서는 "no such module 'Testing'"으로 깨진다.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Swift version
-        run: swift --version
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
       - name: Build
         run: swift build
-      - name: Test (27 tests incl. consent-OFF gate & perf budget)
+      # 주의: macOS 호스트에서는 canImport(UIKit)이 false이므로 UIKit 글루
+      # (HitHitCollector / TrackingWindow / ScrollTracker)는 컴파일에서 제외된다.
+      # 그 부분은 아래 ios-test 잡이 시뮬레이터에서 검증한다.
+      - name: Test (순수 코어 + 파이프라인 + 동의OFF 게이트 + 성능예산)
         run: swift test
 
-  ios-build:
-    name: iOS simulator build (UIKit glue)
-    runs-on: macos-14
+  ios-test:
+    name: iOS simulator test (UIKit glue)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
-      - name: Build for iOS Simulator
-        run: >
-          xcodebuild build
-          -scheme HitHitKit
-          -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest'
-          CODE_SIGNING_ALLOWED=NO
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+      # HitHitKit 스킴은 test 액션을 지원하지 않는다(라이브러리 product 전용).
+      # 테스트 타겟이 포함된 스킴은 SwiftPM이 생성하는 HitHitKit-Package다.
+      - name: Test on iOS Simulator (UIKit 글루 포함 전체)
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available \
+            | awk -F'[()]' '/iPhone/ {gsub(/ /,"",$2); print $2; exit}')
+          if [ -z "$UDID" ]; then
+            echo "::error::사용 가능한 iPhone 시뮬레이터를 찾지 못했습니다."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using simulator: $UDID"
+          xcodebuild test \
+            -scheme HitHitKit-Package \
+            -destination "id=$UDID" \
+            CODE_SIGNING_ALLOWED=NO
