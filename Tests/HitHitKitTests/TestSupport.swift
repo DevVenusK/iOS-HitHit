@@ -15,6 +15,13 @@ final class FakeUploader: HitHitUploader, @unchecked Sendable {
 
     var uploadCount: Int { lock.lock(); defer { lock.unlock() }; return batches.count }
 
+    /// 전송된 모든 배치를 이벤트로 복원. wire format을 실제로 통과했는지 검증할 때 쓴다.
+    var uploadedEvents: [HitHitEvent] {
+        lock.lock(); defer { lock.unlock() }
+        let decoder = JSONDecoder()
+        return batches.flatMap { (try? decoder.decode([HitHitEvent].self, from: $0)) ?? [] }
+    }
+
     func upload(batch: Data, completion: @escaping (Result<Void, Error>) -> Void) {
         lock.lock()
         batches.append(batch)
@@ -22,6 +29,33 @@ final class FakeUploader: HitHitUploader, @unchecked Sendable {
         index += 1
         lock.unlock()
         completion(result)
+    }
+}
+
+/// completion을 **붙잡아 두는** 전송기. 전송이 "비행 중(in-flight)"인 상태를 재현한다.
+/// `complete(_:)`를 부를 때까지 파이프라인의 `uploading` 플래그가 켜진 채 머문다.
+final class ManualUploader: HitHitUploader, @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: ((Result<Void, Error>) -> Void)?
+    private var batchCount = 0
+
+    var isInFlight: Bool { lock.lock(); defer { lock.unlock() }; return pending != nil }
+    var uploadCount: Int { lock.lock(); defer { lock.unlock() }; return batchCount }
+
+    func upload(batch: Data, completion: @escaping (Result<Void, Error>) -> Void) {
+        lock.lock()
+        batchCount += 1
+        pending = completion
+        lock.unlock()
+    }
+
+    /// 붙잡아 둔 전송을 끝낸다.
+    func complete(_ result: Result<Void, Error> = .success(())) {
+        lock.lock()
+        let completion = pending
+        pending = nil
+        lock.unlock()
+        completion?(result)
     }
 }
 
@@ -42,12 +76,17 @@ final class FakeBuffer: EventBuffering, @unchecked Sendable {
 }
 
 enum TestFiles {
-    /// 매 테스트마다 고유한 임시 JSONL 경로.
-    static func tempEventFile(_ name: String = "events") -> URL {
+    /// 매 테스트마다 고유한 임시 디렉토리.
+    static func tempDirectory() -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("hitmap-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("\(name).jsonl")
+        return dir
+    }
+
+    /// 매 테스트마다 고유한 임시 JSONL 경로.
+    static func tempEventFile(_ name: String = "events") -> URL {
+        tempDirectory().appendingPathComponent("\(name).jsonl")
     }
 }
 

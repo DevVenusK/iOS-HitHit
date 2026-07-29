@@ -39,7 +39,13 @@
 ```
 
 - **정규화 기준**: 탭은 **window(전체 화면) bounds** 기준 0~1(화면마다 안정적으로 동일). `screenW/H`는 그 화면 크기. child/컨테이너 VC에 따라 기준이 바뀌지 않도록 화면 단위로 고정.
-- **스크롤 깊이**: `scrollDepth = contentOffset.y / max(1, contentSize.height - bounds.height)`, 0~1 clamp.
+- **스크롤 깊이**: `adjustedContentInset`(safe area 등)을 반영한 실제 스크롤 가능 영역을 기준으로 한다.
+  ```
+  viewport = max(0, bounds.height - adjustedContentInset.top - adjustedContentInset.bottom)
+  scrollDepth = clamp01((contentOffset.y + adjustedContentInset.top) / (contentSize.height - viewport))
+  ```
+  스크롤 불가(`contentSize.height <= viewport`)면 0. inset을 빼지 않으면 노치/홈인디케이터 기기에서
+  같은 화면의 깊이가 서로 다르게 나온다.
 - **forward-compat**: 필드 *추가*는 옵셔널이면 non-breaking(schemaVersion 유지). 의미변경/삭제만 schemaVersion++.
 
 ## 3. Public API (최소 표면)
@@ -56,9 +62,10 @@ public final class HitHitCollector {
     public func setScreen(_ name: String)      // 현재 화면 이름 설정
     public func clearScreen()
 
-    public func track(scrollView: UIScrollView)   // 비스위즐 명시 등록(기본)
+    public func track(scrollView: UIScrollView)   // 비스위즐 명시 등록
     public func untrack(scrollView: UIScrollView)
 
+    public func purgePendingEvents()          // 미전송 버퍼 하드 삭제(동의 철회 등)
     public func flush(completion: ((Result<Void, HitHitError>) -> Void)?)
 }
 
@@ -68,8 +75,10 @@ public struct HitHitConfig {
     public var excludedScreens: Set<String>   // 민감화면 제외
     public var samplingRate: Double           // 0...1, 기본 1.0
     public var scrollSampleHz: Int            // 기본 10
+    public var autoTrackScrollViews: Bool     // 기본 true. 터치된 스크롤뷰 자동 등록(스위즐 아님)
     public var uploadStrategy: HitHitUploadStrategy  // 기본 .immediate
     public var storageDirectory: URL?         // 실패/오프라인 임시 버퍼 위치
+    public var maxBufferedEvents: Int         // 기본 20000. 초과 시 오래된 것부터 폐기(0 이하=무제한)
     public var uploader: HitHitUploader?     // nil이면 내장 전송기 사용
     public init(endpoint: URL)
 }
@@ -107,6 +116,10 @@ public struct HitHitError: Error, Equatable, Sendable {  // struct+code (CTO 조
 - `URLSession` 기반, 지수 백오프 재시도, 실패 시 로컬 보존 → 60초 재시도 스윕 또는 다음 이벤트/`flush()`에서 재전송.
 - 한 요청당 최대 500건(`uploadChunkSize`). 앱 백그라운드 진입 시 `flush()` 권장.
 - `config.uploader` 주입 시 내장 전송 대신 그걸 사용.
+- **버퍼 상한**(`maxBufferedEvents`, 기본 20,000건): 오프라인 장기화 시 로컬 파일이 무한히 커지는 것을 막는다.
+  초과하면 **오래된 것부터** 폐기하되 한 번에 상한의 90%까지 내려 파일 재작성 비용을 분산(amortize)한다.
+  ⚠️ **전송이 비행 중일 때는 폐기하지 않는다** — `startUpload`가 잡아둔 `lineCount`와 어긋나면
+  아직 보내지 않은 이벤트를 전송 성공분으로 오인해 삭제하게 된다(회귀테스트로 강제).
 
 ## 5. 성능 예산 (유지)
 | 항목 | 목표 |
@@ -136,10 +149,26 @@ public struct HitHitError: Error, Equatable, Sendable {  // struct+code (CTO 조
 - CocoaPods podspec은 host-app 인벤토리 확인 후(Later).
 
 ## 8. 테스트 전략
-- Core: 정규화 좌표(여러 화면크기), scrollDepth 계산, Codable round-trip, schemaVersion forward-compat.
-- Kit: 제외화면 필터, 샘플링, **동의OFF=0건(게이트)**, scrollView weak untrack, 배치/재시도.
-- 전송: 가짜 endpoint(URLProtocol stub)로 배치 POST·재시도·실패보존 검증.
+
+프레임워크는 **Swift Testing**(Swift 6.0+ 필요). 두 층으로 나뉜다.
+
+**(a) macOS 호스트 — `swift test`**
+- Core: 정규화 좌표(여러 화면크기), scrollDepth 계산, 탭 판별, Codable round-trip, schemaVersion forward-compat.
+- Kit: 제외화면 필터, 샘플링, **동의OFF=0건(게이트)**, 배치/재시도, 손상 라인 정렬, 버퍼 상한.
+- 전송: 주입된 가짜 전송기로 배치 POST·재시도·실패보존 검증.
 - 성능: 터치당 <0.5ms 마이크로벤치.
+
+**(b) iOS 시뮬레이터 — `xcodebuild test -scheme HitHitKit-Package`**
+
+⚠️ macOS에서는 `canImport(UIKit)`이 false여서 `HitHitCollector`·`TrackingWindow`·`ScrollTracker`가
+**컴파일에서 아예 제외**된다. 따라서 UIKit 글루는 시뮬레이터 잡에서만 검증된다.
+- 탭 좌표 정규화가 **window bounds 기준**인지(회귀 가드), 범위 밖 clamp, orientation 판정.
+- 동의 OFF 게이트가 UIKit 진입점에서도 유효한지.
+- `enclosingScrollView()`가 **가장 가까운** 스크롤뷰를 잡는지(자동 추적의 핵심).
+- 스크롤 샘플링: 깊이 계산, 오프셋 무변화 시 미방출, 중복 track 무시, **scrollView weak untrack**.
+
+**한계**: `UITouch`/`UIEvent`는 생성 불가여서 `sendEvent` 터치 시퀀스 자체는 단위테스트로 덮지 못한다.
+탭 판별 수식만 `TouchClassifier`(순수)로 분리해 덮는다.
 
 ## 9. 미결 / 의존
 - window 후킹 방식(교체 vs 런타임 옵저버) — 구현 프로토타입에서 확정. 기본 비스위즐.

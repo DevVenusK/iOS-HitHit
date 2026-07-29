@@ -79,24 +79,27 @@ flowchart TD
 iOS-HitHit/
 ├── Package.swift                 # SwiftPM: HitHitCore + HitHitKit 2 타겟
 ├── Sources/
-│   ├── HitHitCore/              # 스키마 · 에러 · 정규화(순수)
+│   ├── HitHitCore/              # 스키마 · 에러 · 정규화 · 탭판별(순수)
 │   │   ├── HitHitEvent.swift
 │   │   ├── HitHitError.swift    #   struct + code (확장에 안전)
-│   │   └── Normalization.swift   #   좌표/스크롤깊이 순수 함수
+│   │   ├── Normalization.swift   #   좌표/스크롤깊이 순수 함수
+│   │   └── TouchClassifier.swift #   탭 vs 스크롤 판별(순수)
 │   └── HitHitKit/               # 수집 + 전송(UIKit)
 │       ├── HitHitCollector.swift #  공개 진입점
 │       ├── HitHitConfig.swift
 │       ├── HitHitUploader.swift  #  프로토콜 + 내장 HTTP 전송기
 │       ├── EventPipeline.swift    #  게이팅/저장/전송 코어(테스트 가능)
 │       ├── EventStore.swift       #  JSONL 배치 저장
+│       ├── CollectionGate.swift   #  수집 허용 판정(순수)
+│       ├── BufferPolicy.swift     #  버퍼 상한 초과분 판정(순수)
 │       ├── TrackingWindow.swift   #  전역 탭 인터셉트
 │       ├── ScrollTracker.swift    #  스크롤 깊이 샘플링(비스위즐)
 │       └── DeviceInfo.swift
-├── Tests/                        # 30 tests (XCTest)
+├── Tests/                        # Swift Testing — macOS 55 + iOS 전용 16 (UIKit 글루)
 ├── docs/
 │   ├── sdk-spec/                 # 기술 스펙 (v1 수집 스펙이 권위)
 │   └── po/                       # PO 백로그(RICE) + 팀 의뢰 회신
-└── .github/workflows/ci.yml      # SwiftPM test + iOS 시뮬 빌드
+└── .github/workflows/ci.yml      # SwiftPM test + iOS 시뮬레이터 test
 ```
 
 ---
@@ -177,6 +180,7 @@ HitHitCollector.shared.flush()                    // 백그라운드 진입 시
 | `autoTrackScrollViews` | `true` | 터치된 스크롤뷰 자동 추적. false면 `track(scrollView:)` 수동 등록만 |
 | `uploadStrategy` | `.immediate` | 전송 전략 (아래 참고) |
 | `storageDirectory` | caches | **실패/오프라인 대비 임시 버퍼** 위치 |
+| `maxBufferedEvents` | `20000` | 임시 버퍼 최대 보관 건수. 초과 시 **오래된 것부터** 폐기 (0 이하=무제한) |
 | `uploader` | nil | 커스텀 전송기(주입 시 내장 대체) |
 
 ### 전송 전략 (uploadStrategy)
@@ -196,6 +200,10 @@ config.uploadStrategy = .immediate                        // 기본: 즉시
 ```
 
 > 전송 실패/오프라인이면 이벤트는 로컬 버퍼에 보존되고, 60초 재시도 스윕 또는 다음 이벤트/`flush()` 시 재전송된다.
+
+> **버퍼 상한**: 오프라인이 길어져도 파일이 무한히 커지지 않도록 `maxBufferedEvents`(기본 20,000건)를
+> 넘으면 **오래된 이벤트부터** 폐기한다. 한 번에 상한의 90%까지 내려 파일 재작성 비용을 분산하며,
+> 전송이 진행 중인 배치는 정렬이 어긋나지 않도록 건드리지 않는다.
 
 커스텀 전송기:
 ```swift
@@ -225,6 +233,9 @@ config.uploader = MyUploader()
 - **로컬 버퍼 미암호화**: 임시 JSONL은 caches에 평문 저장(전송 성공 시 삭제). 민감 환경은 `storageDirectory`를
   보호된 경로로 지정하거나 File Protection을 적용하는 것을 권장.
 - **비-TrackingWindow 호스트**: `TrackingWindow`를 설치하지 않으면 탭이 수집되지 않는다(DEBUG 빌드에서 경고 출력).
+- **UITouch 시퀀스 자체는 단위테스트 불가**: `UITouch`/`UIEvent`는 생성할 수 없어 `sendEvent` 경로는
+  단위테스트로 덮지 못한다. 탭 판별 **수식**은 `TouchClassifier`로 분리해 테스트하고,
+  좌표 정규화·자동 스크롤 등록은 시뮬레이터 테스트로 덮는다.
 
 ---
 
@@ -232,11 +243,25 @@ config.uploader = MyUploader()
 
 ```bash
 swift build
-swift test        # 30 tests: 동의OFF=0건 게이트 · 전송 재시도 · 정규화 · 저장 · 성능예산
+swift test        # macOS 호스트: 55 tests (Swift Testing)
+                  # 동의OFF=0건 게이트 · 전송 재시도 · 정규화 · 저장 · 버퍼상한 · 성능예산
 ```
 
+> ⚠️ **macOS에서는 `canImport(UIKit)`이 false**라 `HitHitCollector`·`TrackingWindow`·`ScrollTracker`가
+> 컴파일에서 제외된다. 즉 `swift test`만으로는 UIKit 글루가 검증되지 않는다.
+> UIKit 글루(탭 좌표 정규화, 스크롤 샘플링, weak untrack)는 **시뮬레이터에서만** 돈다:
+
+```bash
+UDID=$(xcrun simctl list devices available \
+  | awk -F'[()]' '/iPhone/ {gsub(/ /,"",$2); print $2; exit}')
+xcodebuild test -scheme HitHitKit-Package -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO
+# → 71 tests (macOS 55 + UIKit 글루 16)
+```
+
+- `HitHitKit` 스킴은 test 액션을 지원하지 않는다(라이브러리 product 전용) → **`HitHitKit-Package`** 사용
 - 성능 가드: 메인스레드 인입 경로 per-op < 0.5ms 하드 어서션 포함
-- CI: macOS 러너에서 `swift test` + iOS 시뮬레이터 빌드(UIKit 글루 검증)
+- 툴체인: Swift Testing은 **Swift 6.0+** 필요 (Xcode 15.4/Swift 5.10에서는 `no such module 'Testing'`)
+- CI: macOS 러너에서 `swift test` + **iOS 시뮬레이터 `xcodebuild test`**(UIKit 글루 검증)
 
 ---
 

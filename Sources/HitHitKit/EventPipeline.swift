@@ -67,6 +67,7 @@ final class EventPipeline {
                 device: device, orientation: orientation, ts: self.now()
             )
             self.store.append(event)
+            self.enforceBufferCap()
             self.maybeTriggerUpload()
         }
     }
@@ -83,8 +84,23 @@ final class EventPipeline {
                 device: device, orientation: orientation, ts: self.now()
             )
             self.store.append(event)
+            self.enforceBufferCap()
             self.maybeTriggerUpload()
         }
+    }
+
+    /// 버퍼 상한 초과분을 앞(오래된 것)에서 버린다. (큐 내부)
+    ///
+    /// **전송이 비행 중이면 건너뛴다.** `startUpload`는 스팬의 `lineCount`를 미리 잡아두고
+    /// 성공 시 `removeFirst(lineCount)`로 지우는데, 그 사이 앞을 잘라내면 인덱스가 어긋나
+    /// **아직 전송하지 않은 이벤트를 전송 성공분으로 오인해 삭제**하게 된다.
+    /// 전송은 재시도까지 수 초 내에 끝나므로, 그 동안의 초과분은 다음 인입에서 정리된다.
+    private func enforceBufferCap() {
+        guard !uploading else { return }
+        let drop = BufferPolicy.overflowDropCount(
+            count: store.count(), max: config.maxBufferedEvents)
+        guard drop > 0 else { return }
+        store.removeFirst(drop)
     }
 
     /// 수집 게이트 — 순수 판정 로직에 위임. (큐 내부에서만 호출)

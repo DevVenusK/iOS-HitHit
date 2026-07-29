@@ -13,18 +13,18 @@ import Foundation
         #expect(store.count() == 2)
     }
 
-    @Test func loadBatchRespectsMax() {
+    @Test func loadSpanRespectsMax() {
         let store = EventStore(fileURL: TestFiles.tempEventFile())
         for _ in 0..<5 { store.append(.stubTap()) }
-        #expect(store.loadBatch(max: 3).count == 3)
-        #expect(store.loadBatch(max: 100).count == 5)
+        #expect(store.loadSpan(max: 3).events.count == 3)
+        #expect(store.loadSpan(max: 100).events.count == 5)
     }
 
     @Test func removeFirstDropsFromFront() {
         let store = EventStore(fileURL: TestFiles.tempEventFile())
         for i in 0..<5 { store.append(.stubTap(screen: "s\(i)")) }
         store.removeFirst(2)
-        let remaining = store.loadBatch(max: 100)
+        let remaining = store.loadSpan(max: 100).events
         #expect(remaining.count == 3)
         #expect(remaining.first?.screen == "s2")
     }
@@ -36,7 +36,7 @@ import Foundation
             screenW: 390, screenH: 844, device: "iPhone15,3",
             orientation: .portrait, ts: 99)
         store.append(original)
-        #expect(store.loadBatch(max: 1).first == original)
+        #expect(store.loadSpan(max: 1).events.first == original)
     }
 
     @Test func clearEmptiesStore() {
