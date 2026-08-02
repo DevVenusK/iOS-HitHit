@@ -42,8 +42,8 @@ HitHitKit은 **수집 레이어만** 직접 소유한다. 좌표·화면이름·
 | <img src="docs/images/example-scroll-depth.png" alt="화면 깊이별 도달 비율 히트맵" width="330"> | <img src="docs/images/example-tap-scroll-combined.png" alt="탭 위치와 스크롤 깊이를 겹친 히트맵" width="330"> |
 | 각 깊이에 **도달한 사용자 비율**. 맨 위(0%)는 100%가 보지만 끝(100%)까지 내려간 건 **43%뿐** → 하단 콘텐츠가 절반 이상에게 노출되지 않는다는 뜻 | 따뜻한 점 = **탭이 몰린 위치**, 차가운 배경 = 스크롤 깊이. "어디를 누르나"와 "어디까지 보나"를 한 장에서 대조 |
 
-두 그림 모두 `screen: HomeMainViewController` 한 화면 · `iPhone18,1`(402×874pt) ·
-**탭 10건 / 스크롤 샘플 21건**으로 그린 것이다.
+두 그림 모두 **샘플 데이터** 한 화면(`screen: HomeMainViewController` · `iPhone18,1` 402×874pt) ·
+**탭 10건 / 스크롤 샘플 21건**으로 렌더링한 것이다.
 `x`·`y`·`scrollDepth`가 0~1로 정규화돼 있고 `screenW/H`·`device`·`orientation`이 함께 실려 오므로,
 **여러 기기의 데이터를 섞어도 한 장에 합칠 수 있다.**
 
