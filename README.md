@@ -44,6 +44,7 @@ HitHitKit은 **수집 레이어만** 직접 소유한다. 좌표·화면이름·
 
 두 그림 모두 **샘플 데이터** 한 화면(`screen: HomeMainViewController` · `iPhone18,1` 402×874pt) ·
 **탭 10건 / 스크롤 샘플 21건**으로 렌더링한 것이다.
+쓰인 데이터와 재현 명령은 [docs/samples/](docs/samples/)에 있다(같은 입력 → 바이트 동일한 PNG).
 `x`·`y`·`scrollDepth`가 0~1로 정규화돼 있고 `screenW/H`·`device`·`orientation`이 함께 실려 오므로,
 **여러 기기의 데이터를 섞어도 한 장에 합칠 수 있다.**
 
@@ -117,6 +118,7 @@ iOS-HitHit/
 ├── docs/
 │   ├── sdk-spec/                 # 기술 스펙 (v1 수집 스펙이 권위)
 │   ├── images/                   # README 예시 히트맵 이미지
+│   ├── samples/                  # 그 이미지를 만든 샘플 이벤트 + 재현 명령
 │   └── po/                       # PO 백로그(RICE) + 팀 의뢰 회신
 └── .github/workflows/ci.yml      # SwiftPM test + iOS 시뮬레이터 test
 ```
