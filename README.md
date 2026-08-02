@@ -31,6 +31,25 @@ HitHitKit은 **수집 레이어만** 직접 소유한다. 좌표·화면이름·
 
 ---
 
+## 📸 수집한 데이터로 만들 수 있는 것
+
+> ⚠️ **아래 그림은 SDK가 그려 주는 게 아니다.** HitHitKit은 좌표·깊이·시간만 수집해 서버로 보낸다
+> (렌더링은 Non-Goal). 아래는 그렇게 모인 이벤트를 **직접 시각화한 예시**다.
+> 서버 측 렌더 파이프라인 구조는 [docs/architecture.html](docs/architecture.html) 참고.
+
+| 스크롤 깊이 | 탭 × 스크롤 겹쳐보기 |
+|:--:|:--:|
+| <img src="docs/images/example-scroll-depth.png" alt="화면 깊이별 도달 비율 히트맵" width="330"> | <img src="docs/images/example-tap-scroll-combined.png" alt="탭 위치와 스크롤 깊이를 겹친 히트맵" width="330"> |
+| 각 깊이에 **도달한 사용자 비율**. 맨 위(0%)는 100%가 보지만 끝(100%)까지 내려간 건 **43%뿐** → 하단 콘텐츠가 절반 이상에게 노출되지 않는다는 뜻 | 따뜻한 점 = **탭이 몰린 위치**, 차가운 배경 = 스크롤 깊이. "어디를 누르나"와 "어디까지 보나"를 한 장에서 대조 |
+
+두 그림 모두 **샘플 데이터** 한 화면(`screen: HomeMainViewController` · `iPhone18,1` 402×874pt) ·
+**탭 10건 / 스크롤 샘플 21건**으로 렌더링한 것이다.
+쓰인 데이터와 재현 명령은 [docs/samples/](docs/samples/)에 있다(같은 입력 → 바이트 동일한 PNG).
+`x`·`y`·`scrollDepth`가 0~1로 정규화돼 있고 `screenW/H`·`device`·`orientation`이 함께 실려 오므로,
+**여러 기기의 데이터를 섞어도 한 장에 합칠 수 있다.**
+
+---
+
 ## 🧩 구성도
 
 ### 데이터 흐름
@@ -98,6 +117,8 @@ iOS-HitHit/
 ├── Tests/                        # Swift Testing — macOS 55 + iOS 전용 16 (UIKit 글루)
 ├── docs/
 │   ├── sdk-spec/                 # 기술 스펙 (v1 수집 스펙이 권위)
+│   ├── images/                   # README 예시 히트맵 이미지
+│   ├── samples/                  # 그 이미지를 만든 샘플 이벤트 + 재현 명령
 │   └── po/                       # PO 백로그(RICE) + 팀 의뢰 회신
 └── .github/workflows/ci.yml      # SwiftPM test + iOS 시뮬레이터 test
 ```
