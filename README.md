@@ -5,71 +5,80 @@
 ![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 
-호스트 iOS 앱의 **탭·스크롤 이벤트를 디바이스 무관한 정규화 좌표로 수집해 서버로 직접 전송**하는
-1st-party UX 분석 SDK. **히트맵 렌더링은 하지 않는다** — 수집된 데이터로 **당신이 나중에 직접** 히트맵을 만든다.
+A 1st-party UX analytics SDK that **collects tap and scroll events from a host iOS app as
+device-independent normalized coordinates and ships them straight to your own server**.
+**It does not render heatmaps** — you build those yourself, later, from the data it collects.
 
 ---
 
-## 🎯 목적 (왜 만들었나)
+## 🎯 Why this exists
 
-> "유저가 화면의 어디를 많이 누르는가 / 얼마나 깊이 스크롤하는가"를 알고 싶다.
+> We want to know where users tap on a screen, and how far down they actually scroll.
 
-상용 분석 SDK(UXCam, Smartlook 등)는 편하지만 금융 앱에는 두 가지 문제가 있다:
-1. **데이터 주권** — 사용자 상호작용 원본이 외부 벤더로 나간다.
-2. **프라이버시 통제** — 무엇을 수집하는지 세밀하게 막기 어렵다.
+Commercial analytics SDKs (UXCam, Smartlook, and friends) are convenient, but they create two
+problems for a financial app:
 
-HitHitKit은 **수집 레이어만** 직접 소유한다. 좌표·화면이름·시간이라는 최소 데이터만 모아
-**당신의 서버**로 보내고, 히트맵 시각화는 그 데이터로 원하는 도구에서 자유롭게 만든다.
+1. **Data sovereignty** — the raw record of user interaction leaves for a third-party vendor.
+2. **Privacy control** — it is hard to say precisely what may and may not be captured.
 
-**설계 원칙**
-- **수집만 한다** — 렌더링/뷰어는 범위 밖 (Non-Goal)
-- **좌표만** — 텍스트/입력값/요소식별자(elementID) 절대 미수집 → PII 경로 원천 차단
-- **동의 기본 OFF** — 명시적 동의 전에는 단 한 건도 수집 안 함 (fail-safe, 회귀테스트로 강제)
-- **서드파티 0 의존성** — 호스트 앱과 버전 충돌 없음
-- **성능 예산** — 터치당 메인스레드 < 0.5ms (측정치 per-op ~0.15µs)
-- **디바이스 무관** — SE와 Pro Max 데이터를 섞어도 의미가 유지되도록 0~1 정규화 + 화면크기 동봉
+HitHitKit owns **only the collection layer**. It gathers the minimum — coordinates, a screen
+name, a timestamp — sends it to **your server**, and leaves visualization to whatever tool you
+prefer.
+
+**Design principles**
+
+- **Collection only** — rendering and viewers are out of scope (Non-Goal)
+- **Coordinates only** — no text, no input values, no element identifiers → the PII path is removed at the source
+- **Consent defaults to OFF** — not a single event is collected before explicit opt-in (fail-safe, enforced by a regression test)
+- **Zero third-party dependencies** — nothing to conflict with the host app's versions
+- **Performance budget** — under 0.5 ms on the main thread per touch (measured ≈0.15 µs per op)
+- **Device independent** — 0–1 normalization plus the screen size that produced it, so an SE and a Pro Max can be pooled without losing meaning
 
 ---
 
-## 📸 수집한 데이터로 만들 수 있는 것
+## 📸 What you can build from the data
 
-> ⚠️ **아래 그림은 SDK가 그려 주는 게 아니다.** HitHitKit은 좌표·깊이·시간만 수집해 서버로 보낸다
-> (렌더링은 Non-Goal). 아래는 그렇게 모인 이벤트를 **직접 시각화한 예시**다.
-> 서버 측 렌더 파이프라인 구조는 [docs/architecture.html](docs/architecture.html) 참고.
+> ⚠️ **The SDK does not draw these.** HitHitKit collects coordinates, depth, and time, and sends
+> them to your server (rendering is a Non-Goal). These are examples of what those events look
+> like once **you** visualize them. For the server-side render pipeline, see
+> [docs/architecture.html](docs/architecture.html).
 
-| 스크롤 깊이 | 탭 × 스크롤 겹쳐보기 |
+| Scroll depth | Tap × scroll, overlaid |
 |:--:|:--:|
-| <img src="docs/images/example-scroll-depth.png" alt="화면 깊이별 도달 비율 히트맵" width="330"> | <img src="docs/images/example-tap-scroll-combined.png" alt="탭 위치와 스크롤 깊이를 겹친 히트맵" width="330"> |
-| 각 깊이에 **도달한 사용자 비율**. 맨 위(0%)는 100%가 보지만 끝(100%)까지 내려간 건 **43%뿐** → 하단 콘텐츠가 절반 이상에게 노출되지 않는다는 뜻 | 따뜻한 점 = **탭이 몰린 위치**, 차가운 배경 = 스크롤 깊이. "어디를 누르나"와 "어디까지 보나"를 한 장에서 대조 |
+| <img src="docs/images/example-scroll-depth.png" alt="Heatmap of how far down the screen users reached" width="330"> | <img src="docs/images/example-tap-scroll-combined.png" alt="Heatmap overlaying tap positions on scroll depth" width="330"> |
+| **Share of users who reached each depth.** Everyone sees the top (0%), but only **43%** ever reach the bottom (100%) — more than half the audience never sees the lower content | Warm blobs = **where taps cluster**; cool background = scroll depth. "Where do they tap" and "how far do they look" on a single canvas |
 
-두 그림 모두 **샘플 데이터** 한 화면(`screen: HomeMainViewController` · `iPhone18,1` 402×874pt) ·
-**탭 10건 / 스크롤 샘플 21건**으로 렌더링한 것이다.
-쓰인 데이터와 재현 명령은 [docs/samples/](docs/samples/)에 있다(같은 입력 → 바이트 동일한 PNG).
-`x`·`y`·`scrollDepth`가 0~1로 정규화돼 있고 `screenW/H`·`device`·`orientation`이 함께 실려 오므로,
-**여러 기기의 데이터를 섞어도 한 장에 합칠 수 있다.**
+Both images were rendered from **sample data** for one screen
+(`screen: HomeMainViewController` · `iPhone18,1` 402×874pt) with **10 taps / 21 scroll samples**.
+The data and the exact commands to reproduce them live in [docs/samples/](docs/samples/)
+(same input → byte-identical PNG).
+
+Because `x`, `y`, and `scrollDepth` are normalized to 0–1 and every event carries
+`screenW`/`screenH`, `device`, and `orientation`, **data from a mix of devices can be pooled into
+one picture.**
 
 ---
 
-## 🧩 구성도
+## 🧩 Architecture
 
-### 데이터 흐름
+### Data flow
 
 ```mermaid
 flowchart LR
-  U["👆 사용자<br/>탭 / 스크롤"] --> TW["TrackingWindow<br/>ScrollTracker"]
-  TW -->|"정규화 좌표 계산<br/>(메인스레드 &lt;0.5ms)"| C["HitHitCollector<br/>(공개 API)"]
-  C --> P["EventPipeline<br/>게이팅: 실행·동의·제외화면·샘플링"]
-  P -->|"백그라운드 큐"| S[("EventStore<br/>임시 버퍼(실패 대비)")]
-  S --> UP["DefaultHTTPUploader<br/>POST + 지수백오프 재시도"]
-  UP -->|"성공→로컬삭제<br/>실패→로컬보존(재시도)"| SRV[("🗄️ 당신의 서버<br/>(데이터 원본)")]
-  SRV -.->|"나중에 직접"| HM["📊 히트맵 생성"]
+  U["👆 User<br/>tap / scroll"] --> TW["TrackingWindow<br/>ScrollTracker"]
+  TW -->|"normalize coordinates<br/>(main thread &lt;0.5ms)"| C["HitHitCollector<br/>(public API)"]
+  C --> P["EventPipeline<br/>gating: running · consent · excluded screens · sampling"]
+  P -->|"background queue"| S[("EventStore<br/>temporary buffer (for failures)")]
+  S --> UP["DefaultHTTPUploader<br/>POST + exponential backoff"]
+  UP -->|"success → drop locally<br/>failure → keep for retry"| SRV[("🗄️ Your server<br/>(source of truth)")]
+  SRV -.->|"later, by you"| HM["📊 Build a heatmap"]
 ```
 
-### 모듈 의존성
+### Module dependencies
 
 ```mermaid
 flowchart TD
-  subgraph Kit["HitHitKit (수집 + 전송, UIKit)"]
+  subgraph Kit["HitHitKit (collection + delivery, UIKit)"]
     TW["TrackingWindow"] --> Col["HitHitCollector"]
     ST["ScrollTracker"] --> Pipe["EventPipeline"]
     Col --> Pipe
@@ -78,7 +87,7 @@ flowchart TD
     Dev["DeviceInfo"]
     Cfg["HitHitConfig"]
   end
-  subgraph Core["HitHitCore (스키마, 순수 Foundation)"]
+  subgraph Core["HitHitCore (schema, pure Foundation)"]
     Ev["HitHitEvent"]
     Er["HitHitError"]
     No["Normalization"]
@@ -86,72 +95,72 @@ flowchart TD
   Kit --> Core
 ```
 
-- **HitHitCore** — UIKit 무의존 순수 로직(스키마·에러·좌표 정규화). 어디서든 단위테스트 가능.
-- **HitHitKit** — UIKit 글루 + 수집/저장/전송. 공개 API는 `HitHitCollector` 하나로 좁힘.
-- 테스트 가능성을 위해 게이팅/저장/전송 로직을 `EventPipeline`(생성자 주입)으로 분리, 싱글톤은 얇은 파사드.
+- **HitHitCore** — pure logic with no UIKit dependency (schema, errors, coordinate normalization). Unit-testable anywhere.
+- **HitHitKit** — the UIKit glue plus collection, storage, and delivery. The public surface is narrowed to a single type, `HitHitCollector`.
+- Gating, storage, and upload live in `EventPipeline` (constructor-injected) so they can be tested in isolation; the singleton is a thin façade over it.
 
 ---
 
-## 📁 디렉토리 구조
+## 📁 Repository layout
 
 ```
 iOS-HitHit/
-├── Package.swift                 # SwiftPM: HitHitCore + HitHitKit 2 타겟
+├── Package.swift                 # SwiftPM: 2 targets — HitHitCore + HitHitKit
 ├── Sources/
-│   ├── HitHitCore/              # 스키마 · 에러 · 정규화 · 탭판별(순수)
+│   ├── HitHitCore/              # schema · errors · normalization · tap classification (pure)
 │   │   ├── HitHitEvent.swift
-│   │   ├── HitHitError.swift    #   struct + code (확장에 안전)
-│   │   ├── Normalization.swift   #   좌표/스크롤깊이 순수 함수
-│   │   └── TouchClassifier.swift #   탭 vs 스크롤 판별(순수)
-│   └── HitHitKit/               # 수집 + 전송(UIKit)
-│       ├── HitHitCollector.swift #  공개 진입점
+│   │   ├── HitHitError.swift    #   struct + code (safe to extend)
+│   │   ├── Normalization.swift   #   pure coordinate / scroll-depth functions
+│   │   └── TouchClassifier.swift #   tap vs. scroll decision (pure)
+│   └── HitHitKit/               # collection + delivery (UIKit)
+│       ├── HitHitCollector.swift #  public entry point
 │       ├── HitHitConfig.swift
-│       ├── HitHitUploader.swift  #  프로토콜 + 내장 HTTP 전송기
-│       ├── EventPipeline.swift    #  게이팅/저장/전송 코어(테스트 가능)
-│       ├── EventStore.swift       #  JSONL 배치 저장
-│       ├── CollectionGate.swift   #  수집 허용 판정(순수)
-│       ├── BufferPolicy.swift     #  버퍼 상한 초과분 판정(순수)
-│       ├── TrackingWindow.swift   #  전역 탭 인터셉트
-│       ├── ScrollTracker.swift    #  스크롤 깊이 샘플링(비스위즐)
+│       ├── HitHitUploader.swift  #  protocol + built-in HTTP uploader
+│       ├── EventPipeline.swift    #  gating/storage/upload core (testable)
+│       ├── EventStore.swift       #  JSONL batch buffer
+│       ├── CollectionGate.swift   #  "may we collect this?" decision (pure)
+│       ├── BufferPolicy.swift     #  "how much to drop on overflow?" decision (pure)
+│       ├── TrackingWindow.swift   #  global tap interception
+│       ├── ScrollTracker.swift    #  scroll-depth sampling (no swizzling)
 │       └── DeviceInfo.swift
-├── Tests/                        # Swift Testing — macOS 55 + iOS 전용 16 (UIKit 글루)
+├── Tests/                        # Swift Testing — 55 on macOS + 16 iOS-only (UIKit glue)
 ├── docs/
-│   ├── sdk-spec/                 # 기술 스펙 (v1 수집 스펙이 권위)
-│   ├── images/                   # README 예시 히트맵 이미지
-│   ├── samples/                  # 그 이미지를 만든 샘플 이벤트 + 재현 명령
-│   └── po/                       # PO 백로그(RICE) + 팀 의뢰 회신
-└── .github/workflows/ci.yml      # SwiftPM test + iOS 시뮬레이터 test
+│   ├── sdk-spec/                 # technical spec (the v1 collection spec is authoritative)
+│   ├── images/                   # example heatmaps used by this README
+│   ├── samples/                  # the sample events behind those images + repro commands
+│   └── po/                       # product backlog (RICE) + team consultation replies
+└── .github/workflows/ci.yml      # SwiftPM test + iOS simulator test
 ```
 
 ---
 
-## 📦 수집되는 데이터 (서버로 가는 이벤트)
+## 📦 What gets collected (the event that reaches your server)
 
-탭·스크롤을 하나의 flat 스키마로 통일. `screenW/H`+`device`+`orientation`을 함께 실어
-어떤 기기든 합쳐 히트맵을 그릴 수 있다.
+Taps and scrolls share one flat schema. Every event carries `screenW`/`screenH`, `device`, and
+`orientation` so that any mix of devices can be combined into a single heatmap.
 
 ```json
-// 탭
+// tap
 { "schemaVersion": 1, "id": "9F2A…", "type": "tap", "screen": "loan_detail",
   "x": 0.42, "y": 0.73, "screenW": 390, "screenH": 844,
   "device": "iPhone15,3", "orientation": "portrait", "ts": 1719800000000 }
 
-// 스크롤
+// scroll
 { "schemaVersion": 1, "id": "1C7B…", "type": "scroll", "screen": "loan_detail",
   "scrollDepth": 0.65, "scrollOffsetY": 1240,
   "screenW": 390, "screenH": 844,
   "device": "iPhone15,3", "orientation": "portrait", "ts": 1719800000000 }
 ```
 
-| 필드 | 의미 |
+| Field | Meaning |
 |---|---|
-| `id` | 이벤트 UUID — ACK 유실/재시도 시 **서버 측 멱등 dedup**용 |
-| `type` | `tap` \| `scroll` — 탭은 **눌렀다 거의 안 움직이고 뗀 것**만(이동 ≤ `TrackingWindow.tapSlop`, 기본 10pt). 스크롤/드래그는 탭으로 안 잡힘 |
-| `screen` | 화면 이름(문자열). 매핑은 수집 측이 나중에. **PII 금지** |
-| `x`,`y` | 탭 정규화 좌표 0~1 (뷰 bounds 기준) |
-| `scrollDepth` | 스크롤 정규화 깊이 0~1 |
-| `screenW`,`screenH`,`device`,`orientation` | 정규화 기준 + 기기 컨텍스트 |
-| `ts` | epoch milliseconds |
+| `id` | Event UUID — lets the server **deduplicate idempotently** when an ACK is lost and the batch is retried |
+| `type` | `tap` \| `scroll`. A tap is a touch that went down and came back up **without moving much** (travel ≤ `TrackingWindow.tapSlop`, 10pt by default), so scrolls and drags are never misread as taps |
+| `screen` | Screen name (free-form string). Map it to something meaningful later. **Must not contain PII** |
+| `x`, `y` | Tap position normalized to 0–1 (relative to the window bounds) |
+| `scrollDepth` | Scroll depth normalized to 0–1 |
+| `screenW`, `screenH`, `device`, `orientation` | The normalization basis plus device context |
+| `ts` | Epoch milliseconds |
 
 ---
 
@@ -165,68 +174,75 @@ dependencies: [
 ```
 
 ```swift
-// 1) SceneDelegate — window를 TrackingWindow로 교체
+// 1) SceneDelegate — swap your window for a TrackingWindow
 window = TrackingWindow(windowScene: windowScene)
 
-// 2) 앱 시작
+// 2) At app start
 let config = HitHitConfig(endpoint: URL(string: "https://your.server/hitmap")!)
 try? HitHitCollector.shared.start(config: config)
 
-// 3) 동의 후 (기본 OFF)
+// 3) Once you have consent (OFF by default)
 HitHitCollector.shared.setConsent(true)
 ```
 
-화면마다:
+Per screen:
+
 ```swift
-HitHitCollector.shared.setScreen("loan_detail")   // 현재 화면 이름
-// 스크롤은 기본 자동 추적 → 보통 아무것도 안 해도 됨.
-// (autoTrackScrollViews=false로 끄면 원하는 것만 track(scrollView:)로 등록)
-HitHitCollector.shared.flush()                    // 백그라운드 진입 시
+HitHitCollector.shared.setScreen("loan_detail")   // current screen name
+// Scroll views are tracked automatically, so usually there is nothing to do here.
+// (Set autoTrackScrollViews = false to register only the ones you pick, via track(scrollView:))
+HitHitCollector.shared.flush()                    // when entering the background
 ```
 
-> **스크롤은 기본 자동**입니다. 터치가 스크롤뷰 안에서 시작되면 그 스크롤뷰가 자동 등록됩니다(스위즐 아님).
-> 탭처럼 별도 설정 없이 잡힙니다. 세밀 제어가 필요하면 `config.autoTrackScrollViews = false` 후 `track(scrollView:)`로 명시 등록.
+> **Scroll tracking is automatic by default.** When a touch begins inside a scroll view, that
+> scroll view is registered for you — no swizzling involved. It works without setup, just like
+> taps. If you need finer control, set `config.autoTrackScrollViews = false` and register views
+> explicitly with `track(scrollView:)`.
 
 ---
 
-## ⚙️ 설정 (HitHitConfig)
+## ⚙️ Configuration (`HitHitConfig`)
 
-| 필드 | 기본값 | 설명 |
+| Field | Default | Description |
 |---|---|---|
-| `endpoint` | (필수) | **서버 URL — 수집 데이터 전송 대상.** 데이터의 원본은 이 서버 |
-| `headers` | `[:]` | 인증 등 요청 헤더 |
-| `excludedScreens` | `[]` | 수집 제외 화면(민감화면) |
-| `samplingRate` | `1.0` | 0~1 확률 샘플링 |
-| `scrollSampleHz` | `10` | 스크롤 샘플링 주파수 |
-| `autoTrackScrollViews` | `true` | 터치된 스크롤뷰 자동 추적. false면 `track(scrollView:)` 수동 등록만 |
-| `uploadStrategy` | `.immediate` | 전송 전략 (아래 참고) |
-| `storageDirectory` | caches | **실패/오프라인 대비 임시 버퍼** 위치 |
-| `maxBufferedEvents` | `20000` | 임시 버퍼 최대 보관 건수. 초과 시 **오래된 것부터** 폐기 (0 이하=무제한) |
-| `uploader` | nil | 커스텀 전송기(주입 시 내장 대체) |
+| `endpoint` | (required) | **Server URL that receives the collected data.** This server is the source of truth |
+| `headers` | `[:]` | Request headers, e.g. authentication |
+| `excludedScreens` | `[]` | Screens to skip entirely (sensitive screens) |
+| `samplingRate` | `1.0` | Probabilistic sampling, 0–1 |
+| `scrollSampleHz` | `10` | Scroll sampling frequency |
+| `autoTrackScrollViews` | `true` | Auto-register the touched scroll view. When false, only views passed to `track(scrollView:)` are tracked |
+| `uploadStrategy` | `.immediate` | Delivery strategy (see below) |
+| `storageDirectory` | caches | Location of the **temporary buffer** used for failures and offline periods |
+| `maxBufferedEvents` | `20000` | Cap on buffered events. Beyond it, the **oldest are dropped** (0 or less = unlimited) |
+| `uploader` | nil | Custom uploader; injecting one replaces the built-in |
 
-### 전송 전략 (uploadStrategy)
+### Upload strategy
 
-데이터는 **서버가 원본**이다. 로컬 JSONL은 영구 저장소가 아니라 **전송 실패/오프라인 대비 임시 버퍼**이며,
-업로드 성공 즉시 비워진다.
+**The server is the source of truth.** The local JSONL file is not durable storage — it is a
+**temporary buffer for delivery failures and offline periods**, and it is emptied as soon as an
+upload succeeds.
 
-| 전략 | 동작 |
+| Strategy | Behavior |
 |---|---|
-| **`.immediate`** (기본) | 이벤트 발생 **즉시 서버로 전송**. 전송 중 들어온 이벤트는 코얼레싱되어 다음 드레인에 함께 전송(탭 1번=요청 1개 아님). 로컬엔 미전송분만 잠깐 남음 |
-| `.batched(maxSize:interval:)` | `maxSize` 도달 또는 `interval` 경과 시 전송. 네트워크/배터리 절약, 대신 전송 전까지 로컬에 더 오래 쌓임 |
+| **`.immediate`** (default) | Send **as soon as an event occurs**. Events that arrive while a request is in flight are coalesced into the next drain, so a burst of taps does not turn into one request per tap. Only undelivered events sit locally, and only briefly |
+| `.batched(maxSize:interval:)` | Send when the buffer reaches `maxSize` or `interval` elapses. Easier on network and battery, at the cost of events resting locally for longer |
 
 ```swift
 var config = HitHitConfig(endpoint: serverURL)
-config.uploadStrategy = .immediate                        // 기본: 즉시
-// config.uploadStrategy = .batched(maxSize: 500, interval: 30)  // 절약 모드
+config.uploadStrategy = .immediate                        // default: send right away
+// config.uploadStrategy = .batched(maxSize: 500, interval: 30)  // frugal mode
 ```
 
-> 전송 실패/오프라인이면 이벤트는 로컬 버퍼에 보존되고, 60초 재시도 스윕 또는 다음 이벤트/`flush()` 시 재전송된다.
+> On failure or offline, events stay in the local buffer and are retried by a 60-second sweep, or
+> on the next event, or on `flush()`.
 
-> **버퍼 상한**: 오프라인이 길어져도 파일이 무한히 커지지 않도록 `maxBufferedEvents`(기본 20,000건)를
-> 넘으면 **오래된 이벤트부터** 폐기한다. 한 번에 상한의 90%까지 내려 파일 재작성 비용을 분산하며,
-> 전송이 진행 중인 배치는 정렬이 어긋나지 않도록 건드리지 않는다.
+> **Buffer cap.** So that a long offline stretch cannot grow the file without bound, anything past
+> `maxBufferedEvents` (20,000 by default) is discarded **oldest-first**. Each trim goes down to 90%
+> of the cap to amortize the cost of rewriting the file, and a batch that is currently being
+> uploaded is left untouched so its line alignment cannot drift.
 
-커스텀 전송기:
+Custom uploader:
+
 ```swift
 final class MyUploader: HitHitUploader {
     func upload(batch: Data, completion: @escaping (Result<Void, Error>) -> Void) { /* ... */ }
@@ -236,81 +252,97 @@ config.uploader = MyUploader()
 
 ---
 
-## 🔒 프라이버시
+## 🔒 Privacy
 
-- **동의 = 마스터 스위치, 기본 OFF** — `setConsent(true)` 전엔 수집·저장 0건 (회귀테스트로 강제).
-  법적 근거상 좌표 수집에 별도 동의가 불필요하다고 판단되면 시작 시 한 번 `setConsent(true)` 호출하면 됨(동의 UI 강제 아님).
-- **동의 철회(`setConsent(false)`)** — 신규 수집 중단 + **미전송 버퍼 업로드도 중단**(재동의 시 재개). 하드 삭제는 `purgePendingEvents()`.
-- **좌표만 수집** — 콘텐츠/입력값/요소식별자 절대 미수집
-- **민감화면 제외** — 로그인·계좌·금액 화면은 `excludedScreens`에 등록 (정확 문자열 일치)
-- **`screen` 이름에 PII 금지** — 서버로 전송되므로 고정 심볼릭 이름 사용
-- **ATT/IDFA 추적 아님** (1st-party 분석). PrivacyManifest는 현재 required-reason API 미사용으로
-  필수는 아니나, 데이터수집 신고는 호스트 앱 App Privacy 라벨로 처리 → [상세](docs/sdk-spec/hithitkit-v1-collection.md) §6
+- **Consent is the master switch and defaults to OFF** — nothing is collected or stored before
+  `setConsent(true)` (enforced by a regression test). If your legal basis means coordinate
+  collection needs no separate opt-in, simply call `setConsent(true)` once at startup; the SDK
+  does not force a consent UI on you.
+- **Revoking consent** (`setConsent(false)`) stops new collection **and halts uploads of anything
+  still buffered** (both resume if consent is granted again). To delete outright, call
+  `purgePendingEvents()`.
+- **Coordinates only** — content, input values, and element identifiers are never collected.
+- **Exclude sensitive screens** — register login, account, and amount screens in
+  `excludedScreens` (exact string match).
+- **Keep PII out of `screen` names** — they are transmitted, so use stable symbolic names.
+- **This is not ATT/IDFA tracking** (it is 1st-party analytics). A privacy manifest is not
+  strictly required today because no required-reason APIs are used; declaring the data collection
+  is handled by the host app's App Privacy labels →
+  [details](docs/sdk-spec/hithitkit-v1-collection.md) §6
 
-## ⚠️ 알려진 한계
+## ⚠️ Known limitations
 
-- **멀티 씬/윈도우(iPad multi-window)**: `HitHitCollector.shared`는 단일 전역 상태(`currentScreen`)를 가져,
-  여러 씬이 동시에 다른 화면을 표시하면 화면 라벨이 섞일 수 있다. 단일 씬(대부분의 폰 앱)에서는 문제없음. 씬별 상태 분리는 향후 과제.
-- **로컬 버퍼 미암호화**: 임시 JSONL은 caches에 평문 저장(전송 성공 시 삭제). 민감 환경은 `storageDirectory`를
-  보호된 경로로 지정하거나 File Protection을 적용하는 것을 권장.
-- **비-TrackingWindow 호스트**: `TrackingWindow`를 설치하지 않으면 탭이 수집되지 않는다(DEBUG 빌드에서 경고 출력).
-- **UITouch 시퀀스 자체는 단위테스트 불가**: `UITouch`/`UIEvent`는 생성할 수 없어 `sendEvent` 경로는
-  단위테스트로 덮지 못한다. 탭 판별 **수식**은 `TouchClassifier`로 분리해 테스트하고,
-  좌표 정규화·자동 스크롤 등록은 시뮬레이터 테스트로 덮는다.
+- **Multiple scenes / windows (iPad multi-window)**: `HitHitCollector.shared` keeps a single
+  global `currentScreen`, so if several scenes display different screens at once, the labels can
+  interleave. Single-scene apps — most phone apps — are unaffected. Per-scene state is future work.
+- **The local buffer is not encrypted**: the temporary JSONL sits in caches as plain text and is
+  deleted once delivered. In sensitive environments, point `storageDirectory` at a protected
+  location or apply File Protection.
+- **Hosts without `TrackingWindow`**: if you do not install `TrackingWindow`, taps are simply not
+  collected (DEBUG builds print a warning).
+- **The `UITouch` sequence itself cannot be unit-tested**: `UITouch` and `UIEvent` cannot be
+  constructed, so the `sendEvent` path is out of reach for unit tests. The tap **decision rule**
+  is extracted into `TouchClassifier` and tested there, while coordinate normalization and
+  automatic scroll registration are covered by simulator tests.
 
 ---
 
-## 🧪 개발 / 테스트
+## 🧪 Development / Testing
 
 ```bash
 swift build
-swift test        # macOS 호스트: 55 tests (Swift Testing)
-                  # 동의OFF=0건 게이트 · 전송 재시도 · 정규화 · 저장 · 버퍼상한 · 성능예산
+swift test        # macOS host: 55 tests (Swift Testing)
+                  # consent-OFF gate · upload retries · normalization · storage · buffer cap · perf budget
 ```
 
-> ⚠️ **macOS에서는 `canImport(UIKit)`이 false**라 `HitHitCollector`·`TrackingWindow`·`ScrollTracker`가
-> 컴파일에서 제외된다. 즉 `swift test`만으로는 UIKit 글루가 검증되지 않는다.
-> UIKit 글루(탭 좌표 정규화, 스크롤 샘플링, weak untrack)는 **시뮬레이터에서만** 돈다:
+> ⚠️ **On macOS, `canImport(UIKit)` is false**, so `HitHitCollector`, `TrackingWindow`, and
+> `ScrollTracker` are excluded from compilation entirely. `swift test` alone therefore does **not**
+> verify the UIKit glue. Tap coordinate normalization, scroll sampling, and weak untracking run
+> **only in the simulator**:
 
 ```bash
 UDID=$(xcrun simctl list devices available \
   | awk -F'[()]' '/iPhone/ {gsub(/ /,"",$2); print $2; exit}')
 xcodebuild test -scheme HitHitKit-Package -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO
-# → 71 tests (macOS 55 + UIKit 글루 16)
+# → 71 tests (55 from macOS + 16 UIKit glue)
 ```
 
-- `HitHitKit` 스킴은 test 액션을 지원하지 않는다(라이브러리 product 전용) → **`HitHitKit-Package`** 사용
-- 성능 가드: 메인스레드 인입 경로 per-op < 0.5ms 하드 어서션 포함
-- 툴체인: Swift Testing은 **Swift 6.0+** 필요 (Xcode 15.4/Swift 5.10에서는 `no such module 'Testing'`)
-- CI: macOS 러너에서 `swift test` + **iOS 시뮬레이터 `xcodebuild test`**(UIKit 글루 검증)
+- The `HitHitKit` scheme does not support the test action (it is a library product), so use **`HitHitKit-Package`**
+- Performance guard: a hard assertion that the main-thread intake path stays under 0.5 ms per op
+- Toolchain: Swift Testing requires **Swift 6.0+** (on Xcode 15.4 / Swift 5.10 you get `no such module 'Testing'`)
+- CI: `swift test` on a macOS runner **plus `xcodebuild test` on an iOS simulator** to cover the UIKit glue
 
 ---
 
-## 🗺️ 상태 / 로드맵
+## 🗺️ Status / Roadmap
 
-| 단계 | 항목 | 상태 |
+| Stage | Item | Status |
 |---|---|---|
-| **NOW (0.x)** | 수집 코어 · 동의 게이트 · 직접 전송 · 성능예산 · CI · README | ✅ 완료 |
-| NOW-EXIT | wire schema v1 동결(분석가 필드 점검 1회) | ⏳ 워크숍 대기 |
-| NEXT | reference uploader 샘플 · (필요시) sessionID 옵셔널 필드 | 예정 |
-| LATER | CocoaPods podspec · SQLite 저장 옵션 | 조건부 |
+| **NOW (0.x)** | Collection core · consent gate · direct delivery · performance budget · CI · README | ✅ Done |
+| NOW-EXIT | Freeze wire schema v1 (one review pass with analysts) | ⏳ Awaiting workshop |
+| NEXT | Reference uploader sample · optional `sessionID` field, if needed | Planned |
+| LATER | CocoaPods podspec · SQLite storage option | Conditional |
 
-> **버저닝**: pre-1.0(0.x) 동안 wire schema 변경 가능. schema 동결 후 `v1.0.0` 승격.
-> 자세한 우선순위 근거는 [docs/po/hithitkit-backlog.md](docs/po/hithitkit-backlog.md)(RICE).
+> **Versioning**: the wire schema may still change during pre-1.0 (0.x). Once it is frozen, the
+> package is promoted to `v1.0.0`. Prioritization rationale lives in
+> [docs/po/hithitkit-backlog.md](docs/po/hithitkit-backlog.md) (RICE).
 
 ---
 
-## 📚 문서
+## 📚 Documentation
 
-| 문서 | 내용 |
+> These documents are written in Korean.
+
+| Document | Contents |
 |---|---|
-| [docs/sdk-spec/hithitkit-v1-collection.md](docs/sdk-spec/hithitkit-v1-collection.md) | **v1 수집 스펙 (권위)** — API·스키마·전송·프라이버시 |
-| [docs/sdk-spec/hithitkit.md](docs/sdk-spec/hithitkit.md) | 초기 풀스코프 스펙(렌더러 포함, v1이 대체) |
-| [docs/po/hithitkit-backlog.md](docs/po/hithitkit-backlog.md) | PO 백로그 + RICE 우선순위 + 로드맵 |
-| [docs/po/consults/](docs/po/consults/) | ios/designer/security 팀 의뢰 회신 |
+| [docs/sdk-spec/hithitkit-v1-collection.md](docs/sdk-spec/hithitkit-v1-collection.md) | **v1 collection spec (authoritative)** — API, schema, delivery, privacy |
+| [docs/sdk-spec/hithitkit.md](docs/sdk-spec/hithitkit.md) | The original full-scope spec, including a renderer (superseded by v1) |
+| [docs/po/hithitkit-backlog.md](docs/po/hithitkit-backlog.md) | Product backlog, RICE prioritization, roadmap |
+| [docs/po/consults/](docs/po/consults/) | Replies from the iOS, design, and security team consultations |
+| [docs/samples/](docs/samples/) | Sample events behind the README images + reproduction commands |
 
 ---
 
-## 라이선스
+## License
 
 Proprietary — Finda 1st-party.
